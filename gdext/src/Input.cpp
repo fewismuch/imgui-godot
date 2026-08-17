@@ -128,15 +128,15 @@ void Input::UpdateMousePos()
         }
         else if (impl->hasLastEventMousePos)
         {
-            // Prefer event-based mouse position which works correctly in embedded editor mode
+            // Re-send the last known event-based position each frame.
+            // Do NOT fall back to DisplayServer::mouse_get_position - Window::get_position,
+            // because that calculation is incorrect when the game runs embedded
+            // inside the Godot editor (Window::get_position doesn't reflect the actual
+            // on-screen placement of the embedded game viewport).
             io.AddMousePosEvent(impl->lastEventMousePos.x, impl->lastEventMousePos.y);
-            impl->hasLastEventMousePos = false;
         }
-        else
-        {
-            Vector2i winPos = GetContext()->layer->get_window()->get_position();
-            io.AddMousePosEvent(mousePos.x - winPos.x, mousePos.y - winPos.y);
-        }
+        // If we never received a mouse event yet, do nothing — ImGui will
+        // use its default state until the first mouse event arrives.
     }
 }
 
@@ -344,6 +344,24 @@ bool Input::HandleEvent(const Ref<InputEvent>& evt)
 bool Input::ProcessInput(const Ref<InputEvent>& evt)
 {
     ProcessSubViewportWidget(evt);
+
+    // Immediately send mouse position from input events to ImGui,
+    // mirroring how InputLocal works for SubViewports. This is the only
+    // correct way when running embedded in the Godot editor, where the
+    // Window::get_position based calculation is wrong. We also need to
+    // send BEFORE the button event so ImGui uses the updated position when
+    // evaluating widget hits for WantCaptureMouse.
+    ImGuiIO& io = ImGui::GetIO();
+    if (!(io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable))
+    {
+        if (Ref<InputEventMouse> me = evt; me.is_valid())
+        {
+            impl->hasLastEventMousePos = true;
+            impl->lastEventMousePos = me->get_position();
+            io.AddMousePosEvent(impl->lastEventMousePos.x, impl->lastEventMousePos.y);
+        }
+    }
+
     return HandleEvent(evt);
 }
 

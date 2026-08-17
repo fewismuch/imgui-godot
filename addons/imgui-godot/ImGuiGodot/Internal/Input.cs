@@ -65,15 +65,15 @@ internal class Input
             }
             else if (_lastEventMousePos.HasValue)
             {
-                // Prefer event-based mouse position which works correctly in embedded editor mode
+                // Re-send the last known event-based position each frame.
+                // Do NOT fall back to DisplayServer.MouseGetPosition - Window.Position,
+                // because that calculation is incorrect when the game runs embedded
+                // inside the Godot editor (Window.Position doesn't reflect the actual
+                // on-screen placement of the embedded game viewport).
                 io.AddMousePosEvent(_lastEventMousePos.Value.X, _lastEventMousePos.Value.Y);
-                _lastEventMousePos = null;
             }
-            else
-            {
-                var winPos = State.Instance.Layer.GetWindow().Position;
-                io.AddMousePosEvent(mousePos.X - winPos.X, mousePos.Y - winPos.Y);
-            }
+            // If we never received a mouse event yet, do nothing — ImGui will
+            // use its default state until the first mouse event arrives.
         }
     }
 
@@ -278,6 +278,23 @@ internal class Input
     public virtual bool ProcessInput(InputEvent evt)
     {
         ProcessSubViewportWidget(evt);
+
+        // Immediately send mouse position from input events to ImGui,
+        // mirroring how InputLocal works for SubViewports. This is the only
+        // correct way when running embedded in the Godot editor, where the
+        // Window.Position based calculation is wrong. We also need to send
+        // BEFORE the button event so ImGui uses the updated position when
+        // evaluating widget hits for WantCaptureMouse.
+        var io = ImGui.GetIO();
+        if (!io.ConfigFlags.HasFlag(ImGuiConfigFlags.ViewportsEnable))
+        {
+            if (evt is InputEventMouse me)
+            {
+                _lastEventMousePos = me.Position;
+                io.AddMousePosEvent((float)me.Position.X, (float)me.Position.Y);
+            }
+        }
+
         return HandleEvent(evt);
     }
 
