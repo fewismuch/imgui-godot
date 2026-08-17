@@ -42,7 +42,14 @@ void ImGuiControllerHelper::_process(double delta)
     // editor embedded mode where _Input events may not be delivered.
     if (!(ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable))
     {
-        const Vector2 mousePos = get_viewport()->get_mouse_position();
+        // The CanvasItem displaying the SubViewport texture uses
+        // transform = FinalTransform.AffineInverse(), so a point P in
+        // SubViewport space appears at FinalTransform.AffineInverse()*P
+        // on the parent canvas.  Inverting: parent mouse M maps to
+        // FinalTransform * M in SubViewport/ImGui space.
+        const Transform2D ft = get_viewport()->get_final_transform();
+        const Vector2 rawPos = get_viewport()->get_mouse_position();
+        const Vector2 mousePos = ft.xform(rawPos);
         ImGui::GetIO().AddMousePosEvent((float)mousePos.x, (float)mousePos.y);
 
         godot::Input* gdinput = godot::Input::get_singleton();

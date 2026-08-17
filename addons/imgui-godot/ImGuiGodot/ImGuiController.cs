@@ -16,6 +16,7 @@ public partial class ImGuiController : Node
     private sealed partial class ImGuiControllerHelper : Node
     {
         private bool[] _prevMouseButtons = new bool[3];
+        private bool _didLogTransform = false;
 
         public override void _Ready()
         {
@@ -36,7 +37,21 @@ public partial class ImGuiController : Node
             var io = ImGuiNET.ImGui.GetIO();
             if (!io.ConfigFlags.HasFlag(ImGuiConfigFlags.ViewportsEnable))
             {
-                Vector2 mousePos = GetViewport().GetMousePosition();
+                // The CanvasItem displaying the SubViewport texture uses
+                // transform = FinalTransform.AffineInverse(), so a point P in
+                // SubViewport space appears at FinalTransform.AffineInverse()*P
+                // on the parent canvas.  Inverting: parent mouse M maps to
+                // FinalTransform * M in SubViewport/ImGui space.
+                var ft = GetViewport().GetFinalTransform();
+                Vector2 rawPos = GetViewport().GetMousePosition();
+                Vector2 mousePos = ft * rawPos;
+
+                if (!_didLogTransform)
+                {
+                    _didLogTransform = true;
+                    GD.Print($"[ImGuiControllerHelper] ft={ft} rawPos={rawPos} xformed={mousePos} vpSize={GetViewport().GetVisibleRect().Size}");
+                }
+
                 io.AddMousePosEvent((float)mousePos.X, (float)mousePos.Y);
 
                 // Poll mouse button state via frame comparison to detect
@@ -110,7 +125,15 @@ public partial class ImGuiController : Node
 
     public override void _Input(InputEvent @event)
     {
-        if (Internal.State.Instance.Input.ProcessInput(@event))
+        if (TransformMouseEvent(@event, out var transformed))
+        {
+            if (Internal.State.Instance.Input.ProcessInput(transformed))
+            {
+                GetViewport().SetInputAsHandled();
+            }
+            transformed.Dispose();
+        }
+        else if (Internal.State.Instance.Input.ProcessInput(@event))
         {
             GetViewport().SetInputAsHandled();
         }
@@ -118,10 +141,41 @@ public partial class ImGuiController : Node
 
     private void OnWindowInput(InputEvent evt)
     {
-        if (Internal.State.Instance.Input.ProcessInput(evt))
+        if (TransformMouseEvent(evt, out var transformed))
+        {
+            if (Internal.State.Instance.Input.ProcessInput(transformed))
+            {
+                _window.SetInputAsHandled();
+            }
+            transformed.Dispose();
+        }
+        else if (Internal.State.Instance.Input.ProcessInput(evt))
         {
             _window.SetInputAsHandled();
         }
+    }
+
+    /// <summary>
+    /// Transform the mouse event position through the viewport's FinalTransform
+    /// to convert from parent viewport space to SubViewport/ImGui space.
+    /// Returns true and sets <paramref name="transformed"/> when the event is a
+    /// mouse event and the transform is not identity.
+    /// </summary>
+    private bool TransformMouseEvent(InputEvent evt, out InputEvent? transformed)
+    {
+        transformed = null;
+        if (evt is InputEventMouse me)
+        {
+            var ft = GetViewport().GetFinalTransform();
+            if (ft != Transform2D.Identity)
+            {
+                var dup = (InputEventMouse)me.Duplicate();
+                dup.Position = ft * me.Position;
+                transformed = dup;
+                return true;
+            }
+        }
+        return false;
     }
 
     public override void _Process(double delta)
