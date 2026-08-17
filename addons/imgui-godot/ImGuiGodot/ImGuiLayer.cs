@@ -57,12 +57,27 @@ public partial class ImGuiLayer : CanvasLayer
 
     public override void _Input(InputEvent @event)
     {
-        if (@event is InputEventMouse me)
+        // Transform mouse coordinates from parent viewport space into the
+        // SubViewport / ImGui coordinate space. The canvas item that displays
+        // the SubViewport texture uses transform = _finalTransform.AffineInverse(),
+        // so a point P in SubViewport space appears at _finalTransform.AffineInverse()*P
+        // in the parent canvas. Inverting: parent mouse M maps to
+        // _finalTransform * M in SubViewport / ImGui space. Without this
+        // transform, ImGui receives the wrong mouse position (e.g. when
+        // content scale != 1 or in editor embedded mode), causing
+        // WantCaptureMouse to stay false and clicks to pass through.
+        if (@event is InputEventMouse mouseEvent && _finalTransform != Transform2D.Identity)
         {
-            // Debug: helps diagnose whether _Input is called and what coordinates
-            // are received in editor embedded mode.
-            GD.Print($"[ImGuiLayer._Input] {@event.GetType().Name} pos={me.Position} vpSize={_subViewportSize} parent={_parentViewport}");
+            var transformed = (InputEventMouse)mouseEvent.Duplicate();
+            transformed.Position = _finalTransform * mouseEvent.Position;
+            if (Internal.State.Instance.Input.ProcessInput(transformed))
+            {
+                _parentViewport.SetInputAsHandled();
+            }
+            transformed.Dispose();
+            return;
         }
+
         if (Internal.State.Instance.Input.ProcessInput(@event))
         {
             _parentViewport.SetInputAsHandled();
