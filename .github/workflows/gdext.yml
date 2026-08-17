@@ -44,15 +44,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-latest, windows-latest]
+        os: [macos-latest]
         precision: [single, double]
         include:
-          - os: ubuntu-22.04
-            name: 🐧Linux
           - os: macos-latest
             name: 🍎macOS
-          - os: windows-latest
-            name: 🪟Windows
 
     name: ${{ matrix.name }} (precision=${{ matrix.precision }})
     runs-on: ${{ matrix.os }}
@@ -73,12 +69,6 @@ jobs:
           python -m pip install "scons<4.8"
           scons --version
           pip install ply
-
-      - name: Linux tools
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          sudo apt install clang-format
 
       - name: macOS tools
         if: runner.os == 'macOS'
@@ -120,22 +110,12 @@ jobs:
           ls -al gdext/godot-cpp/gdextension
 
       - name: Build
-        if: github.ref_type != 'tag' || runner.os != 'Windows'
         run: |
           cd gdext
           scons precision=${{ matrix.precision }} godot-cpp
           scons precision=${{ matrix.precision }}
           scons precision=${{ matrix.precision }} target=template_release godot-cpp
           scons precision=${{ matrix.precision }} target=template_release
-
-      - name: Build (with debug symbols)
-        if: github.ref_type == 'tag' && runner.os == 'Windows'
-        run: |
-          cd gdext
-          scons precision=${{ matrix.precision }} debug_symbols=yes godot-cpp
-          scons precision=${{ matrix.precision }} debug_symbols=yes
-          scons precision=${{ matrix.precision }} debug_symbols=yes target=template_release godot-cpp
-          scons precision=${{ matrix.precision }} debug_symbols=yes target=template_release
 
       - name: Upload binaries
         uses: actions/upload-artifact@v4
@@ -175,15 +155,8 @@ jobs:
           cd addons/imgui-godot/bin
           mv gdext-*/* .
           rmdir gdext-*
-          rm *.exp
-          rm *.lib
-
-      - name: Upload PDBs
-        if: github.ref_type == 'tag' && matrix.precision == 'single'
-        uses: actions/upload-artifact@v4
-        with:
-          name: pdbs
-          path: addons/imgui-godot/bin/*.pdb
+          rm -f *.exp
+          rm -f *.lib
 
       - name: Prepare files
         id: prep
@@ -271,22 +244,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [macos-latest]
         gdver: ["4.2.2", "4.3.0", "4.4.1", "4.5.0-dev.2"]
         include:
-          - os: ubuntu-latest
-            name: 🐧GdsGameProject
-            exe: GdsGameProject.x86_64
           - os: macos-latest
             name: 🍎GdsGameProject
             exe: GdsGameProject.app/Contents/MacOS/GdsGameProject
-          - os: windows-latest
-            name: 🪟GdsGameProject
-            exe: GdsGameProject.exe
-        exclude:
-          # frequently gets stuck on import despite workaround
-          - os: windows-latest
-            gdver: "4.2.2"
 
     name: ${{ matrix.name }} (${{ matrix.gdver }})
     runs-on: ${{ matrix.os }}
@@ -352,22 +315,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [macos-latest]
         gdver: ["4.2.2", "4.3.0", "4.4.1", "4.5.0-dev.2"]
         include:
-          - os: ubuntu-latest
-            name: 🐧🧪GDScript
-            exe: test.x86_64
           - os: macos-latest
             name: 🍎🧪GDScript
             exe: test.app/Contents/MacOS/test
-          - os: windows-latest
-            name: 🪟🧪GDScript
-            exe: test.exe
-        exclude:
-          # frequently gets stuck on import despite workaround
-          - os: windows-latest
-            gdver: "4.2.2"
 
     name: ${{ matrix.name }} (${{ matrix.gdver }})
     runs-on: ${{ matrix.os }}
@@ -403,22 +356,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [macos-latest]
         gdver: ["4.2.2", "4.3.0", "4.4.1", "4.5.0-dev.2"]
         include:
-          - os: ubuntu-latest
-            name: 🐧🧪C#
-            exe: test.x86_64
           - os: macos-latest
             name: 🍎🧪C#
             exe: test.app/Contents/MacOS/test
-          - os: windows-latest
-            name: 🪟🧪C#
-            exe: test.exe
-        exclude:
-          # frequently gets stuck on import despite workaround
-          - os: windows-latest
-            gdver: "4.2.2"
 
     name: ${{ matrix.name }} (${{ matrix.gdver }})
     runs-on: ${{ matrix.os }}
@@ -476,4 +419,3 @@ jobs:
           files: |
             imgui-godot-*.zip
             AssetLib-*.zip
-            pdbs.zip
