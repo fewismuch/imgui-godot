@@ -29,6 +29,8 @@ struct Input::Impl
     ImGuiMouseCursor currentCursor = ImGuiMouseCursor_None;
     bool hasMouse = false;
     bool takingTextInput = false;
+    bool hasLastEventMousePos = false;
+    Vector2 lastEventMousePos;
 };
 
 namespace {
@@ -124,6 +126,12 @@ void Input::UpdateMousePos()
         {
             godot::Input::get_singleton()->warp_mouse({io.MousePos.x, io.MousePos.y});
         }
+        else if (impl->hasLastEventMousePos)
+        {
+            // Prefer event-based mouse position which works correctly in embedded editor mode
+            io.AddMousePosEvent(impl->lastEventMousePos.x, impl->lastEventMousePos.y);
+            impl->hasLastEventMousePos = false;
+        }
         else
         {
             Vector2i winPos = GetContext()->layer->get_window()->get_position();
@@ -179,14 +187,11 @@ void Input::ProcessSubViewportWidget(const Ref<InputEvent>& evt)
         Ref<InputEvent> vpevt = evt->duplicate();
         if (Ref<InputEventMouse> me = vpevt; me.is_valid())
         {
-            ImGuiIO& io = ImGui::GetIO();
-            Vector2i mousePos = DisplayServer::get_singleton()->mouse_get_position();
-            Vector2i windowPos{0, 0};
-            if (!(io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable))
-                windowPos = GetContext()->layer->get_window()->get_position();
-
-            me->set_position(Vector2(mousePos.x - windowPos.x - impl->currentSubViewportPos.x,
-                                     mousePos.y - windowPos.y - impl->currentSubViewportPos.y)
+            // Use position directly from the event (already local to viewport),
+            // instead of computing from global DisplayServer mouse position
+            // which is incorrect in embedded editor mode
+            me->set_position(Vector2(me->get_position().x - impl->currentSubViewportPos.x,
+                                     me->get_position().y - impl->currentSubViewportPos.y)
                                  .clamp({0, 0}, impl->currentSubViewport->get_size()));
         }
         impl->currentSubViewport->push_input(vpevt, true);
@@ -213,10 +218,17 @@ bool Input::HandleEvent(const Ref<InputEvent>& evt)
 
     if (Ref<InputEventMouseMotion> mm = evt; mm.is_valid())
     {
+        // Save event-based mouse position for UpdateMousePos to use
+        // This works correctly in both embedded editor mode and standalone window mode
+        impl->hasLastEventMousePos = true;
+        impl->lastEventMousePos = mm->get_position();
         consumed = io.WantCaptureMouse;
     }
     else if (Ref<InputEventMouseButton> mb = evt; mb.is_valid())
     {
+        // Also save mouse position from button events for cases when mouse doesn't move
+        impl->hasLastEventMousePos = true;
+        impl->lastEventMousePos = mb->get_position();
         bool pressed = mb->is_pressed();
         switch (mb->get_button_index())
         {

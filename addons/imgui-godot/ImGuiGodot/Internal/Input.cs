@@ -16,6 +16,7 @@ internal class Input
     private ImGuiMouseCursor _currentCursor = ImGuiMouseCursor.None;
     private readonly bool _hasMouse = DisplayServer.HasFeature(DisplayServer.Feature.Mouse);
     private bool _takingTextInput = false;
+    private Vector2? _lastEventMousePos = null;
 
     protected virtual void UpdateMousePos(ImGuiIOPtr io)
     {
@@ -61,6 +62,12 @@ internal class Input
             if (io.WantSetMousePos)
             {
                 Godot.Input.WarpMouse(new(io.MousePos.X, io.MousePos.Y));
+            }
+            else if (_lastEventMousePos.HasValue)
+            {
+                // Prefer event-based mouse position which works correctly in embedded editor mode
+                io.AddMousePosEvent(_lastEventMousePos.Value.X, _lastEventMousePos.Value.Y);
+                _lastEventMousePos = null;
             }
             else
             {
@@ -117,15 +124,12 @@ internal class Input
             var vpEvent = evt.Duplicate() as InputEvent;
             if (vpEvent is InputEventMouse mouseEvent)
             {
-                var io = ImGui.GetIO();
-                var mousePos = DisplayServer.MouseGetPosition();
-                var windowPos = Vector2I.Zero;
-                if (!io.ConfigFlags.HasFlag(ImGuiConfigFlags.ViewportsEnable))
-                    windowPos = State.Instance.Layer.GetWindow().Position;
-
+                // Use position directly from the event (already local to viewport), 
+                // instead of computing from global DisplayServer mouse position
+                // which is incorrect in embedded editor mode
                 mouseEvent.Position = new Vector2(
-                    mousePos.X - windowPos.X - CurrentSubViewportPos.X,
-                    mousePos.Y - windowPos.Y - CurrentSubViewportPos.Y)
+                    mouseEvent.Position.X - CurrentSubViewportPos.X,
+                    mouseEvent.Position.Y - CurrentSubViewportPos.Y)
                     .Clamp(Vector2.Zero, CurrentSubViewport.Size);
             }
             CurrentSubViewport.PushInput(vpEvent, true);
@@ -152,11 +156,16 @@ internal class Input
 
         if (evt is InputEventMouseMotion mm)
         {
+            // Save event-based mouse position for UpdateMousePos to use
+            // This works correctly in both embedded editor mode and standalone window mode
+            _lastEventMousePos = mm.Position;
             consumed = io.WantCaptureMouse;
             mm.Dispose();
         }
         else if (evt is InputEventMouseButton mb)
         {
+            // Also save mouse position from button events for cases when mouse doesn't move
+            _lastEventMousePos = mb.Position;
             switch (mb.ButtonIndex)
             {
                 case MouseButton.Left:
