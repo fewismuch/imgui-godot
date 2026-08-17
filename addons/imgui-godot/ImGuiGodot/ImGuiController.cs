@@ -10,14 +10,12 @@ public partial class ImGuiController : Node
     private Window _window = null!;
     public static ImGuiController Instance { get; private set; } = null!;
     private ImGuiControllerHelper _helper = null!;
+    private ImGuiInputCapture _inputCapture = null!;
     public Node Signaler { get; private set; } = null!;
     private readonly StringName _signalName = "imgui_layout";
 
     private sealed partial class ImGuiControllerHelper : Node
     {
-        private bool[] _prevMouseButtons = new bool[3];
-        private bool _didLogTransform = false;
-
         public override void _Ready()
         {
             Name = "ImGuiControllerHelper";
@@ -28,48 +26,54 @@ public partial class ImGuiController : Node
         public override void _Process(double delta)
         {
             Internal.State.Instance.InProcessFrame = true;
-
-            // Poll mouse position from the Input singleton every frame as a
-            // fallback for editor embedded mode where _Input events may not be
-            // delivered to CanvasLayer or even to regular Node _Input.
-            // This is the most reliable way to keep ImGui's mouse position
-            // in sync regardless of the execution mode.
-            var io = ImGuiNET.ImGui.GetIO();
-            if (!io.ConfigFlags.HasFlag(ImGuiConfigFlags.ViewportsEnable))
-            {
-                // The CanvasItem displaying the SubViewport texture uses
-                // transform = FinalTransform.AffineInverse(), so a point P in
-                // SubViewport space appears at FinalTransform.AffineInverse()*P
-                // on the parent canvas.  Inverting: parent mouse M maps to
-                // FinalTransform * M in SubViewport/ImGui space.
-                var ft = GetViewport().GetFinalTransform();
-                Vector2 rawPos = GetViewport().GetMousePosition();
-                Vector2 mousePos = ft * rawPos;
-
-                if (!_didLogTransform)
-                {
-                    _didLogTransform = true;
-                    GD.Print($"[ImGuiControllerHelper] ft={ft} rawPos={rawPos} xformed={mousePos} vpSize={GetViewport().GetVisibleRect().Size}");
-                }
-
-                io.AddMousePosEvent((float)mousePos.X, (float)mousePos.Y);
-
-                // Poll mouse button state via frame comparison to detect
-                // press/release transitions without relying on _Input events.
-                for (int i = 0; i < 3; i++)
-                {
-                    bool pressed = Input.IsMouseButtonPressed(
-                        (MouseButton)((int)MouseButton.Left + i));
-                    if (pressed != _prevMouseButtons[i])
-                    {
-                        io.AddMouseButtonEvent(i, pressed);
-                        _prevMouseButtons[i] = pressed;
-                    }
-                }
-            }
-
             var vpSize = Internal.State.Instance.Layer.UpdateViewport();
             Internal.State.Instance.Update(delta, new(vpSize.X, vpSize.Y));
+        }
+    }
+
+    /// <summary>
+    /// Full-viewport Control that intercepts GUI input events in editor
+    /// embedded mode, where CanvasLayer._Input and Node._Input are not
+    /// delivered.  _GuiInput is called during the viewport's GUI processing
+    /// phase, which does run in embedded mode (proven by the "focus loss"
+    /// symptom — game Controls receive the click).
+    ///
+    /// MouseFilter = Pass so events that ImGui does not consume continue
+    /// to the game's own Controls.
+    /// </summary>
+    private sealed partial class ImGuiInputCapture : Control
+    {
+        private bool _didLog = false;
+
+        public override void _Ready()
+        {
+            MouseFilter = MouseFilterEnum.Pass;
+            ProcessMode = ProcessModeEnum.Always;
+        }
+
+        public override void _Process(double _delta)
+        {
+            // Keep the Control sized to the full viewport so _GuiInput
+            // receives every mouse event regardless of cursor position.
+            var vpSize = GetViewport().GetVisibleRect().Size;
+            Position = Vector2.Zero;
+            Size = vpSize;
+        }
+
+        public override void _GuiInput(InputEvent @event)
+        {
+            if (!_didLog && @event is InputEventMouseButton mb && mb.Pressed)
+            {
+                _didLog = true;
+                GD.Print($"[ImGuiInputCapture] click pos={mb.Position} vpSize={GetViewport().GetVisibleRect().Size}");
+            }
+
+            // Forward to ImGui.  If ImGui wants to capture the mouse,
+            // consume the event so it does not reach game scene Controls.
+            if (Internal.State.Instance.Input.ProcessInput(@event))
+            {
+                AcceptEvent();
+            }
         }
     }
 
@@ -78,6 +82,9 @@ public partial class ImGuiController : Node
         Instance = this;
         _window = GetWindow();
         _window.WindowInput += OnWindowInput;
+
+        _inputCapture = new ImGuiInputCapture();
+        AddChild(_inputCapture);
 
         CheckContentScale();
 
@@ -125,15 +132,7 @@ public partial class ImGuiController : Node
 
     public override void _Input(InputEvent @event)
     {
-        if (TransformMouseEvent(@event, out var transformed))
-        {
-            if (Internal.State.Instance.Input.ProcessInput(transformed))
-            {
-                GetViewport().SetInputAsHandled();
-            }
-            transformed.Dispose();
-        }
-        else if (Internal.State.Instance.Input.ProcessInput(@event))
+        if (Internal.State.Instance.Input.ProcessInput(@event))
         {
             GetViewport().SetInputAsHandled();
         }
@@ -141,41 +140,10 @@ public partial class ImGuiController : Node
 
     private void OnWindowInput(InputEvent evt)
     {
-        if (TransformMouseEvent(evt, out var transformed))
-        {
-            if (Internal.State.Instance.Input.ProcessInput(transformed))
-            {
-                _window.SetInputAsHandled();
-            }
-            transformed.Dispose();
-        }
-        else if (Internal.State.Instance.Input.ProcessInput(evt))
+        if (Internal.State.Instance.Input.ProcessInput(evt))
         {
             _window.SetInputAsHandled();
         }
-    }
-
-    /// <summary>
-    /// Transform the mouse event position through the viewport's FinalTransform
-    /// to convert from parent viewport space to SubViewport/ImGui space.
-    /// Returns true and sets <paramref name="transformed"/> when the event is a
-    /// mouse event and the transform is not identity.
-    /// </summary>
-    private bool TransformMouseEvent(InputEvent evt, out InputEvent? transformed)
-    {
-        transformed = null;
-        if (evt is InputEventMouse me)
-        {
-            var ft = GetViewport().GetFinalTransform();
-            if (ft != Transform2D.Identity)
-            {
-                var dup = (InputEventMouse)me.Duplicate();
-                dup.Position = ft * me.Position;
-                transformed = dup;
-                return true;
-            }
-        }
-        return false;
     }
 
     public override void _Process(double delta)

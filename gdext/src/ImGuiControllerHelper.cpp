@@ -1,7 +1,5 @@
 #include "ImGuiControllerHelper.h"
 #include "Context.h"
-#include <godot_cpp/classes/viewport.hpp>
-#include <imgui.h>
 using namespace godot;
 
 namespace ImGui::Godot {
@@ -37,38 +35,6 @@ void ImGuiControllerHelper::_process(double delta)
 {
     Context* ctx = GetContext();
     ctx->inProcessFrame = true;
-
-    // Poll mouse position and button state every frame as a fallback for
-    // editor embedded mode where _Input events may not be delivered.
-    if (!(ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable))
-    {
-        // The CanvasItem displaying the SubViewport texture uses
-        // transform = FinalTransform.AffineInverse(), so a point P in
-        // SubViewport space appears at FinalTransform.AffineInverse()*P
-        // on the parent canvas.  Inverting: parent mouse M maps to
-        // FinalTransform * M in SubViewport/ImGui space.
-        const Transform2D ft = get_viewport()->get_final_transform();
-        const Vector2 rawPos = get_viewport()->get_mouse_position();
-        const Vector2 mousePos = ft.xform(rawPos);
-        ImGui::GetIO().AddMousePosEvent((float)mousePos.x, (float)mousePos.y);
-
-        godot::Input* gdinput = godot::Input::get_singleton();
-        static const MouseButton buttons[3] = {
-            MouseButton::MOUSE_BUTTON_LEFT,
-            MouseButton::MOUSE_BUTTON_RIGHT,
-            MouseButton::MOUSE_BUTTON_MIDDLE,
-        };
-        for (int i = 0; i < 3; i++)
-        {
-            const bool pressed = gdinput->is_mouse_button_pressed(buttons[i]);
-            if (pressed != _prevMouseButtons[i])
-            {
-                ImGui::GetIO().AddMouseButtonEvent(i, pressed);
-                _prevMouseButtons[i] = pressed;
-            }
-        }
-    }
-
     ctx->Update(delta, ctx->layer->UpdateViewport());
 }
 

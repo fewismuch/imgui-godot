@@ -19,6 +19,7 @@ struct ImGuiController::Impl
 {
     Window* window = nullptr;
     ImGuiControllerHelper* helper = nullptr;
+    Control* inputCapture = nullptr;
 
     void CheckContentScale() const;
 };
@@ -42,6 +43,7 @@ void ImGuiController::_bind_methods()
     ClassDB::bind_method(D_METHOD("on_frame_pre_draw"), &ImGuiController::on_frame_pre_draw);
     ClassDB::bind_method(D_METHOD("OnLayerExiting"), &ImGuiController::OnLayerExiting);
     ClassDB::bind_method(D_METHOD("window_input_callback"), &ImGuiController::window_input_callback);
+    ClassDB::bind_method(D_METHOD("on_gui_input"), &ImGuiController::on_gui_input);
 }
 
 ImGuiController::ImGuiController() : impl(std::make_unique<Impl>())
@@ -98,6 +100,17 @@ void ImGuiController::_enter_tree()
     impl->helper = memnew(ImGuiControllerHelper);
     add_child(impl->helper);
 
+    // Full-viewport Control that captures GUI input events in editor
+    // embedded mode, where CanvasLayer/Node _input is not delivered.
+    // _gui_input runs during the viewport's GUI processing phase, which
+    // does fire in embedded mode (proven by "focus loss" — game Controls
+    // receive the click).
+    impl->inputCapture = memnew(Control);
+    impl->inputCapture->set_mouse_filter(Control::MOUSE_FILTER_PASS);
+    impl->inputCapture->set_process_mode(Node::PROCESS_MODE_ALWAYS);
+    impl->inputCapture->connect("gui_input", Callable(this, "on_gui_input"));
+    add_child(impl->inputCapture);
+
     SetMainViewport(impl->window);
 }
 
@@ -125,6 +138,14 @@ void ImGuiController::_input(const Ref<InputEvent>& event)
 
 void ImGuiController::_process(double delta)
 {
+    // Keep the input capture Control sized to the full viewport.
+    if (impl->inputCapture)
+    {
+        const Vector2 vpSize = get_viewport()->get_visible_rect().size;
+        impl->inputCapture->set_position(Vector2());
+        impl->inputCapture->set_size(vpSize);
+    }
+
 #ifdef DEBUG_ENABLED
     if (Engine::get_singleton()->is_editor_hint())
     {
@@ -208,6 +229,14 @@ void ImGuiController::window_input_callback(Ref<InputEvent> evt)
     if (GetContext()->input->ProcessInput(evt))
     {
         impl->window->set_input_as_handled();
+    }
+}
+
+void ImGuiController::on_gui_input(Ref<InputEvent> evt)
+{
+    if (GetContext()->input->ProcessInput(evt))
+    {
+        evt->accept();
     }
 }
 
