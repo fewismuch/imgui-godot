@@ -110,6 +110,8 @@ jobs:
           ls -al gdext/godot-cpp/gdextension
 
       - name: Build
+        env:
+          VCPKG_BINARY_SOURCES: "clear"
         run: |
           cd gdext
           scons precision=${{ matrix.precision }} godot-cpp
