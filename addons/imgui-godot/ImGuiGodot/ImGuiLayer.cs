@@ -57,6 +57,12 @@ public partial class ImGuiLayer : CanvasLayer
 
     public override void _Input(InputEvent @event)
     {
+        if (@event is InputEventMouse me)
+        {
+            // Debug: helps diagnose whether _Input is called and what coordinates
+            // are received in editor embedded mode.
+            GD.Print($"[ImGuiLayer._Input] {@event.GetType().Name} pos={me.Position} vpSize={_subViewportSize} parent={_parentViewport}");
+        }
         if (Internal.State.Instance.Input.ProcessInput(@event))
         {
             _parentViewport.SetInputAsHandled();
