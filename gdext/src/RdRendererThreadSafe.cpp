@@ -80,6 +80,12 @@ RdRendererThreadSafe::~RdRendererThreadSafe()
 
 void RdRendererThreadSafe::Render()
 {
+    if (IsFallbackActive())
+    {
+        RenderFallback();
+        return;
+    }
+
     auto& pio = ImGui::GetPlatformIO();
     std::vector<Impl::SharedData> newData(pio.Viewports.size());
 
@@ -94,6 +100,12 @@ void RdRendererThreadSafe::Render()
         {
             ReplaceTextureRIDs(vp->DrawData);
             newData[i].first = GetFramebuffer(vprid);
+            if (IsFallbackActive())
+            {
+                // GetFramebuffer triggered fallback; switch rendering now
+                RenderFallback();
+                return;
+            }
         }
         else
         {
@@ -116,6 +128,14 @@ void RdRendererThreadSafe::Render()
 
 void RdRendererThreadSafe::OnFramePreDraw()
 {
+    if (IsFallbackActive())
+    {
+        // Fallback renders on main thread; clear pending data to free memory
+        std::unique_lock<std::mutex> lock(impl->sharedDataMutex);
+        impl->dataToDraw.clear();
+        return;
+    }
+
     std::vector<Impl::SharedData> dataArray;
 
     {
@@ -133,6 +153,8 @@ void RdRendererThreadSafe::OnFramePreDraw()
         if (!impl->isGodot42)
         {
             fb = GetFramebuffer(fb);
+            if (IsFallbackActive())
+                continue; // fallback will render on main thread next frame
             ReplaceTextureRIDs(drawData);
         }
 

@@ -48,6 +48,23 @@ internal class RdRenderer : IRenderer
     private readonly long[] _vtxOffsets = new long[3];
     private readonly Godot.Collections.Array<RDUniform> _uniformArray = [];
 
+    // Fallback to Canvas renderer when framebuffer creation fails (e.g. Godot 4.7
+    // enforces TEXTURE_USAGE_COLOR_ATTACHMENT_BIT on viewport textures which RS
+    // viewports may not set in embedded editor mode).
+    private CanvasRenderer? _fallbackCanvas;
+    private bool _fallbackWarned = false;
+
+    protected bool IsFallbackActive => _fallbackCanvas != null;
+
+    /// <summary>
+    /// Forward to the fallback CanvasRenderer's Render loop (used by RdRendererThreadSafe too).
+    /// </summary>
+    protected void RenderFallback()
+    {
+        if (_fallbackCanvas != null)
+            _fallbackCanvas.Render();
+    }
+
     public string Name => "godot4_net_rd";
 
     public RdRenderer()
@@ -167,10 +184,13 @@ internal class RdRenderer : IRenderer
     public void InitViewport(Rid vprid)
     {
         RenderingServer.ViewportSetClearMode(vprid, RenderingServer.ViewportClearMode.Never);
+        if (_fallbackCanvas != null)
+            _fallbackCanvas.InitViewport(vprid);
     }
 
     public void CloseViewport(Rid vprid)
     {
+        _fallbackCanvas?.CloseViewport(vprid);
     }
 
     private void SetupBuffers(ImDrawDataPtr drawData)
@@ -259,6 +279,12 @@ internal class RdRenderer : IRenderer
 
     public void Render()
     {
+        if (_fallbackCanvas != null)
+        {
+            _fallbackCanvas.Render();
+            return;
+        }
+
         var pio = ImGui.GetPlatformIO();
         for (int i = 0; i < pio.Viewports.Size; ++i)
         {
@@ -267,7 +293,14 @@ internal class RdRenderer : IRenderer
             {
                 ReplaceTextureRids(vp.DrawData);
                 Rid vprid = Util.ConstructRid((ulong)vp.RendererUserData);
-                RenderOne(GetFramebuffer(vprid), vp.DrawData);
+                Rid fb = GetFramebuffer(vprid);
+                if (_fallbackCanvas != null)
+                {
+                    // GetFramebuffer triggered fallback partway through; switch now
+                    _fallbackCanvas.Render();
+                    return;
+                }
+                RenderOne(fb, vp.DrawData);
             }
         }
         FreeUnusedTextures();
@@ -402,6 +435,7 @@ internal class RdRenderer : IRenderer
 
     public void OnHide()
     {
+        _fallbackCanvas?.OnHide();
     }
 
     public void Dispose()
@@ -412,11 +446,33 @@ internal class RdRenderer : IRenderer
             RD.FreeRid(_idxBuffer);
         if (_vtxBuffer.IsValid)
             RD.FreeRid(_vtxBuffer);
+        _fallbackCanvas?.Dispose();
+    }
+
+    private void EnableFallback()
+    {
+        if (_fallbackCanvas != null)
+            return;
+        if (!_fallbackWarned)
+        {
+            _fallbackWarned = true;
+            GD.PushWarning(
+                "imgui-godot: RD framebuffer creation failed (viewport texture missing "
+                + "COLOR_ATTACHMENT usage bit, likely Godot 4.7+ embedded editor). "
+                + "Falling back to Canvas renderer.");
+        }
+        _fallbackCanvas = new CanvasRenderer();
+        // Replay InitViewport for all known viewports.
+        foreach (Rid vprid in _framebuffers.Keys)
+            _fallbackCanvas.InitViewport(vprid);
     }
 
     protected Rid GetFramebuffer(Rid vprid)
     {
         if (!vprid.IsValid)
+            return new Rid();
+
+        if (_fallbackCanvas != null)
             return new Rid();
 
         if (_framebuffers.TryGetValue(vprid, out Rid fb))
@@ -427,6 +483,14 @@ internal class RdRenderer : IRenderer
 
         Rid vptex = RenderingServer.TextureGetRdTexture(RenderingServer.ViewportGetTexture(vprid));
         fb = RD.FramebufferCreate([vptex]);
+        if (!fb.IsValid)
+        {
+            // Godot 4.7+ enforces attachment usage bits on textures passed to
+            // FramebufferCreate. Viewport textures created by RenderingServer.ViewportCreate
+            // don't always include COLOR_ATTACHMENT_BIT in embedded editor mode.
+            EnableFallback();
+            return new Rid();
+        }
         _framebuffers[vprid] = fb;
         return fb;
     }

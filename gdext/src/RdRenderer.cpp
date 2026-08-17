@@ -1,4 +1,5 @@
 #include "RdRenderer.h"
+#include "CanvasRenderer.h"
 #include "common.h"
 #include <array>
 #include <godot_cpp/classes/object.hpp>
@@ -61,6 +62,9 @@ RID RdRenderer::GetFramebuffer(RID vprid)
     if (!vprid.is_valid())
         return RID();
 
+    if (fallbackCanvas)
+        return RID();
+
     const RenderingServer* RS = RenderingServer::get_singleton();
     RenderingDevice* RD = RS->get_rendering_device();
     auto it = impl->framebuffers.find(vprid);
@@ -75,6 +79,14 @@ RID RdRenderer::GetFramebuffer(RID vprid)
     godot::TypedArray<godot::RID> arr;
     arr.push_back(vptex);
     RID fb = RD->framebuffer_create(arr);
+    if (!fb.is_valid())
+    {
+        // Godot 4.7+ enforces attachment usage bits on textures passed to
+        // FramebufferCreate. Viewport textures created by RenderingServer::ViewportCreate
+        // don't always include COLOR_ATTACHMENT_BIT in embedded editor mode.
+        EnableFallback();
+        return RID();
+    }
     impl->framebuffers[vprid] = fb;
     return fb;
 }
@@ -349,6 +361,60 @@ RdRenderer::~RdRenderer()
 void RdRenderer::InitViewport(RID vprid)
 {
     RenderingServer::get_singleton()->viewport_set_clear_mode(vprid, RenderingServer::VIEWPORT_CLEAR_NEVER);
+    if (fallbackCanvas)
+        fallbackCanvas->InitViewport(vprid);
+}
+
+void RdRenderer::CloseViewport(RID vprid)
+{
+    if (fallbackCanvas)
+        fallbackCanvas->CloseViewport(vprid);
+}
+
+void RdRenderer::OnHide()
+{
+    if (fallbackCanvas)
+        fallbackCanvas->OnHide();
+}
+
+bool RdRenderer::IsFallbackActive() const
+{
+    return fallbackCanvas != nullptr;
+}
+
+void RdRenderer::RenderFallback()
+{
+    if (fallbackCanvas)
+        fallbackCanvas->Render();
+}
+
+void RdRenderer::ReplayInitViewportForFallback()
+{
+    if (!fallbackCanvas)
+        return;
+    for (const auto& kv : impl->framebuffers)
+        fallbackCanvas->InitViewport(kv.first);
+}
+
+void RdRenderer::EnableFallback()
+{
+    if (fallbackCanvas)
+        return;
+    if (!fallbackWarned)
+    {
+        fallbackWarned = true;
+        UtilityFunctions::push_warning(
+            "imgui-godot: RD framebuffer creation failed (viewport texture missing "
+            "COLOR_ATTACHMENT usage bit, likely Godot 4.7+ embedded editor). "
+            "Falling back to Canvas renderer.");
+    }
+    fallbackCanvas = std::make_unique<CanvasRenderer>();
+    if (!fallbackCanvas->Init())
+    {
+        fallbackCanvas.reset();
+        return;
+    }
+    ReplayInitViewportForFallback();
 }
 
 void RdRenderer::FreeUnusedTextures()
@@ -374,6 +440,12 @@ void RdRenderer::FreeUnusedTextures()
 
 void RdRenderer::Render()
 {
+    if (fallbackCanvas)
+    {
+        fallbackCanvas->Render();
+        return;
+    }
+
     auto& pio = ImGui::GetPlatformIO();
     for (ImGuiViewport* vp : pio.Viewports)
     {
@@ -381,7 +453,14 @@ void RdRenderer::Render()
         {
             ReplaceTextureRIDs(vp->DrawData);
             const RID vprid = make_rid(vp->RendererUserData);
-            Render(GetFramebuffer(vprid), vp->DrawData);
+            const RID fb = GetFramebuffer(vprid);
+            if (fallbackCanvas)
+            {
+                // GetFramebuffer triggered fallback partway through; switch now
+                fallbackCanvas->Render();
+                return;
+            }
+            Render(fb, vp->DrawData);
         }
     }
     FreeUnusedTextures();

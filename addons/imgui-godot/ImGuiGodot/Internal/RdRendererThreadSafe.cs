@@ -72,6 +72,13 @@ internal sealed class RdRendererThreadSafe : RdRenderer, IRenderer
 #if GODOT4_3_OR_GREATER
     public new void Render()
     {
+        // If fallback is active, just render via Canvas (main thread is fine)
+        if (IsFallbackActive)
+        {
+            RenderFallback();
+            return;
+        }
+
         var pio = ImGui.GetPlatformIO();
         var newData = new SharedList(pio.Viewports.Size);
 
@@ -98,6 +105,10 @@ internal sealed class RdRendererThreadSafe : RdRenderer, IRenderer
                 ReplaceTextureRids(clone.Data);
                 RenderOne(fb, clone.Data);
             }
+            else if (IsFallbackActive)
+            {
+                // Fallback activated - canvas renders on main thread next frame
+            }
         }
 
         FreeUnusedTextures();
@@ -119,6 +130,12 @@ internal sealed class RdRendererThreadSafe : RdRenderer, IRenderer
 
     public new void Render()
     {
+        if (IsFallbackActive)
+        {
+            RenderFallback();
+            return;
+        }
+
         var pio = ImGui.GetPlatformIO();
         var newData = new SharedList(pio.Viewports.Size);
 
