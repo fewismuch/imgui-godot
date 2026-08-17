@@ -57,37 +57,6 @@ public partial class ImGuiLayer : CanvasLayer
 
     public override void _Input(InputEvent @event)
     {
-        if (@event is InputEventMouse mouseEvent)
-        {
-            // In editor embedded mode, the viewport is sometimes wrapped in a
-            // transform so the displayed mouse position and the SubViewport
-            // draw space don't match. Always try the raw position first. If
-            // this still yields wrong results, we'll switch to FinalTransform
-            // below.
-            var io = ImGuiNET.ImGui.GetIO();
-            bool wasCapturing = io.WantCaptureMouse;
-
-            // TEMP diagnostic: log event so we can see the exact position
-            // values coming in and what ImGui thinks about capture.
-            // Use GD.PushWarning once per second max to avoid spamming.
-            if (!wasCapturing && mouseEvent is InputEventMouseButton mb && mb.Pressed)
-            {
-                GD.PushWarning($"[ImGuiLayer] ButtonClick rawPos={mouseEvent.Position} vpSize={_subViewportSize} FinalTransform={_finalTransform} DisplaySize={io.DisplaySize} WantCaptureMouse_BEFORE={io.WantCaptureMouse}");
-            }
-
-            if (Internal.State.Instance.Input.ProcessInput(mouseEvent))
-            {
-                if (mouseEvent is InputEventMouseButton mb2 && mb2.Pressed)
-                    GD.Print($"[ImGuiLayer] Click CONSUMED pos={mouseEvent.Position} WantCaptureMouse_AFTER={io.WantCaptureMouse}");
-                _parentViewport.SetInputAsHandled();
-            }
-            else if (mouseEvent is InputEventMouseButton mb3 && mb3.Pressed)
-            {
-                GD.Print($"[ImGuiLayer] Click PASSED THROUGH pos={mouseEvent.Position} WantCaptureMouse_AFTER={io.WantCaptureMouse}");
-            }
-            return;
-        }
-
         if (Internal.State.Instance.Input.ProcessInput(@event))
         {
             _parentViewport.SetInputAsHandled();

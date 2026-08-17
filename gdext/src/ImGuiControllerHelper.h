@@ -1,5 +1,7 @@
 #pragma once
+#include <godot_cpp/classes/input.hpp>
 #include <godot_cpp/classes/node.hpp>
+#include <array>
 
 using godot::Node;
 
@@ -20,6 +22,9 @@ public:
 
     ImGuiControllerHelper();
     ~ImGuiControllerHelper();
+
+private:
+    std::array<bool, 3> _prevMouseButtons{};
 };
 
 } // namespace ImGui::Godot

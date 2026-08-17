@@ -60,6 +60,11 @@ void ImGuiController::_enter_tree()
     Engine::get_singleton()->register_singleton("ImGuiController", this);
     impl->window = get_window();
 
+    // Connect the main window's window_input signal so that ImGui receives
+    // input events even in editor embedded mode where CanvasLayer _input
+    // may not be delivered.
+    impl->window->connect("window_input", Callable(this, "window_input_callback"));
+
     impl->CheckContentScale();
 
     ResourceLoader* RL = ResourceLoader::get_singleton();
@@ -100,11 +105,22 @@ void ImGuiController::_ready()
 {
     set_process_priority(std::numeric_limits<int>::max());
     set_process_mode(Node::PROCESS_MODE_ALWAYS);
+    set_process_input(true);
 }
 
 void ImGuiController::_exit_tree()
 {
+    if (impl->window && impl->window->is_connected("window_input", Callable(this, "window_input_callback")))
+        impl->window->disconnect("window_input", Callable(this, "window_input_callback"));
     ImGui::Godot::Shutdown();
+}
+
+void ImGuiController::_input(const Ref<InputEvent>& event)
+{
+    if (GetContext()->input->ProcessInput(event))
+    {
+        get_viewport()->set_input_as_handled();
+    }
 }
 
 void ImGuiController::_process(double delta)
@@ -189,7 +205,10 @@ void ImGuiController::on_frame_pre_draw()
 
 void ImGuiController::window_input_callback(Ref<InputEvent> evt)
 {
-    GetContext()->input->ProcessInput(evt);
+    if (GetContext()->input->ProcessInput(evt))
+    {
+        impl->window->set_input_as_handled();
+    }
 }
 
 } // namespace ImGui::Godot

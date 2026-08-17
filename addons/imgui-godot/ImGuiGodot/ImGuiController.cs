@@ -15,6 +15,8 @@ public partial class ImGuiController : Node
 
     private sealed partial class ImGuiControllerHelper : Node
     {
+        private bool[] _prevMouseButtons = new bool[3];
+
         public override void _Ready()
         {
             Name = "ImGuiControllerHelper";
@@ -25,6 +27,32 @@ public partial class ImGuiController : Node
         public override void _Process(double delta)
         {
             Internal.State.Instance.InProcessFrame = true;
+
+            // Poll mouse position from the Input singleton every frame as a
+            // fallback for editor embedded mode where _Input events may not be
+            // delivered to CanvasLayer or even to regular Node _Input.
+            // This is the most reliable way to keep ImGui's mouse position
+            // in sync regardless of the execution mode.
+            var io = ImGuiNET.ImGui.GetIO();
+            if (!io.ConfigFlags.HasFlag(ImGuiConfigFlags.ViewportsEnable))
+            {
+                Vector2 mousePos = GetViewport().GetMousePosition();
+                io.AddMousePosEvent((float)mousePos.X, (float)mousePos.Y);
+
+                // Poll mouse button state via frame comparison to detect
+                // press/release transitions without relying on _Input events.
+                for (int i = 0; i < 3; i++)
+                {
+                    bool pressed = Input.IsMouseButtonPressed(
+                        (MouseButton)((int)MouseButton.Left + i));
+                    if (pressed != _prevMouseButtons[i])
+                    {
+                        io.AddMouseButtonEvent(i, pressed);
+                        _prevMouseButtons[i] = pressed;
+                    }
+                }
+            }
+
             var vpSize = Internal.State.Instance.Layer.UpdateViewport();
             Internal.State.Instance.Update(delta, new(vpSize.X, vpSize.Y));
         }
@@ -34,6 +62,7 @@ public partial class ImGuiController : Node
     {
         Instance = this;
         _window = GetWindow();
+        _window.WindowInput += OnWindowInput;
 
         CheckContentScale();
 
@@ -70,11 +99,29 @@ public partial class ImGuiController : Node
     {
         ProcessPriority = int.MaxValue;
         ProcessMode = ProcessModeEnum.Always;
+        SetProcessInput(true);
     }
 
     public override void _ExitTree()
     {
+        _window.WindowInput -= OnWindowInput;
         Internal.State.Instance.Dispose();
+    }
+
+    public override void _Input(InputEvent @event)
+    {
+        if (Internal.State.Instance.Input.ProcessInput(@event))
+        {
+            GetViewport().SetInputAsHandled();
+        }
+    }
+
+    private void OnWindowInput(InputEvent evt)
+    {
+        if (Internal.State.Instance.Input.ProcessInput(evt))
+        {
+            _window.SetInputAsHandled();
+        }
     }
 
     public override void _Process(double delta)

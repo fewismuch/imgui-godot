@@ -5,7 +5,6 @@
 #include <godot_cpp/classes/canvas_layer.hpp>
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/gd_script.hpp>
-#include <godot_cpp/classes/input_event_mouse.hpp>
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/classes/packed_scene.hpp>
 #include <godot_cpp/classes/rendering_server.hpp>
@@ -101,27 +100,6 @@ void ImGuiLayer::on_visibility_changed()
 
 void ImGuiLayer::_input(const Ref<InputEvent>& event)
 {
-    // Transform mouse coordinates from parent viewport space into the
-    // SubViewport / ImGui coordinate space. The canvas item that displays
-    // the SubViewport texture uses transform = _finalTransform.AffineInverse(),
-    // so a point P in SubViewport space appears at _finalTransform.AffineInverse()*P
-    // in the parent canvas. Inverting: parent mouse M maps to
-    // _finalTransform * M in SubViewport / ImGui space.
-    if (Ref<InputEventMouse> me = event; me.is_valid())
-    {
-        const Transform2D ft = impl->finalTransform;
-        if (ft != Transform2D())
-        {
-            Ref<InputEventMouse> transformed = me->duplicate();
-            transformed->set_position(ft.xform(me->get_position()));
-            if (GetContext()->input->ProcessInput(transformed))
-            {
-                impl->parentViewport->set_input_as_handled();
-            }
-            return;
-        }
-    }
-
     if (GetContext()->input->ProcessInput(event))
     {
         impl->parentViewport->set_input_as_handled();
