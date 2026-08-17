@@ -236,7 +236,10 @@ void ImGuiController::on_gui_input(Ref<InputEvent> evt)
 {
     if (GetContext()->input->ProcessInput(evt))
     {
-        evt->accept();
+        // Control::accept_event() marks the current GUI event as handled,
+        // preventing it from reaching other Controls below this one.
+        if (impl->inputCapture)
+            impl->inputCapture->accept_event();
     }
 }
 
