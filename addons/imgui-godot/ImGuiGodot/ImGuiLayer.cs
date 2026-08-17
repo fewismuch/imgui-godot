@@ -57,24 +57,34 @@ public partial class ImGuiLayer : CanvasLayer
 
     public override void _Input(InputEvent @event)
     {
-        // Transform mouse coordinates from parent viewport space into the
-        // SubViewport / ImGui coordinate space. The canvas item that displays
-        // the SubViewport texture uses transform = _finalTransform.AffineInverse(),
-        // so a point P in SubViewport space appears at _finalTransform.AffineInverse()*P
-        // in the parent canvas. Inverting: parent mouse M maps to
-        // _finalTransform * M in SubViewport / ImGui space. Without this
-        // transform, ImGui receives the wrong mouse position (e.g. when
-        // content scale != 1 or in editor embedded mode), causing
-        // WantCaptureMouse to stay false and clicks to pass through.
-        if (@event is InputEventMouse mouseEvent && _finalTransform != Transform2D.Identity)
+        if (@event is InputEventMouse mouseEvent)
         {
-            var transformed = (InputEventMouse)mouseEvent.Duplicate();
-            transformed.Position = _finalTransform * mouseEvent.Position;
-            if (Internal.State.Instance.Input.ProcessInput(transformed))
+            // In editor embedded mode, the viewport is sometimes wrapped in a
+            // transform so the displayed mouse position and the SubViewport
+            // draw space don't match. Always try the raw position first. If
+            // this still yields wrong results, we'll switch to FinalTransform
+            // below.
+            var io = ImGuiNET.ImGui.GetIO();
+            bool wasCapturing = io.WantCaptureMouse;
+
+            // TEMP diagnostic: log event so we can see the exact position
+            // values coming in and what ImGui thinks about capture.
+            // Use GD.PushWarning once per second max to avoid spamming.
+            if (!wasCapturing && mouseEvent is InputEventMouseButton mb && mb.Pressed)
             {
+                GD.PushWarning($"[ImGuiLayer] ButtonClick rawPos={mouseEvent.Position} vpSize={_subViewportSize} FinalTransform={_finalTransform} DisplaySize={io.DisplaySize} WantCaptureMouse_BEFORE={io.WantCaptureMouse}");
+            }
+
+            if (Internal.State.Instance.Input.ProcessInput(mouseEvent))
+            {
+                if (mouseEvent is InputEventMouseButton mb2 && mb2.Pressed)
+                    GD.Print($"[ImGuiLayer] Click CONSUMED pos={mouseEvent.Position} WantCaptureMouse_AFTER={io.WantCaptureMouse}");
                 _parentViewport.SetInputAsHandled();
             }
-            transformed.Dispose();
+            else if (mouseEvent is InputEventMouseButton mb3 && mb3.Pressed)
+            {
+                GD.Print($"[ImGuiLayer] Click PASSED THROUGH pos={mouseEvent.Position} WantCaptureMouse_AFTER={io.WantCaptureMouse}");
+            }
             return;
         }
 
