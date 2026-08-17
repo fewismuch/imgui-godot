@@ -45,7 +45,7 @@ void ImGuiControllerHelper::_process(double delta)
         const Vector2 mousePos = get_viewport()->get_mouse_position();
         ImGui::GetIO().AddMousePosEvent((float)mousePos.x, (float)mousePos.y);
 
-        Input* input = Input::get_singleton();
+        godot::Input* gdinput = godot::Input::get_singleton();
         static const MouseButton buttons[3] = {
             MouseButton::MOUSE_BUTTON_LEFT,
             MouseButton::MOUSE_BUTTON_RIGHT,
@@ -53,7 +53,7 @@ void ImGuiControllerHelper::_process(double delta)
         };
         for (int i = 0; i < 3; i++)
         {
-            const bool pressed = input->is_mouse_button_pressed(buttons[i]);
+            const bool pressed = gdinput->is_mouse_button_pressed(buttons[i]);
             if (pressed != _prevMouseButtons[i])
             {
                 ImGui::GetIO().AddMouseButtonEvent(i, pressed);
