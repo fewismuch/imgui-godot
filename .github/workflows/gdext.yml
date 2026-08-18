@@ -82,6 +82,14 @@ jobs:
           vcpkgGitCommitId: ${{ env.vcpkg_tag }}
           manifestDir: gdext
 
+      - name: Install vcpkg dependencies (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        working-directory: gdext
+        run: |
+          rm -rf vcpkg_installed
+          zsh scripts/vcpkg-macos.sh
+
       - name: Make cache key
         shell: bash
         run: |
