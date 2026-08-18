@@ -86,6 +86,8 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         working-directory: gdext
+        env:
+          VCPKG_BINARY_SOURCES: "clear"
         run: |
           rm -rf vcpkg_installed
           zsh scripts/vcpkg-macos.sh
